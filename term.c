@@ -1,4 +1,5 @@
 #include "lib/window.h"
+#include <GLFW/glfw3.h>
 #include <X11/Xlib.h>
 #include <bits/types/struct_timeval.h>
 #include <limits.h>
@@ -79,8 +80,6 @@ int main(void) {
         return 1;
     }
 
-    char textbuf[4096];
-
     bool running = true;
 
     // event loop
@@ -94,13 +93,11 @@ int main(void) {
         select(masterfd + 1, &fdset, NULL, NULL, NULL);
 
         if (FD_ISSET(masterfd, &fdset)) {
-            size_t n = readfrompty();
-            if (n > 0) {
-                printf("%s", textbuf);
-            }
+            readfrompty();
         }
 
         window_clear(0.05f, 0.05f, 0.06f);
+        window_draw_text(20.0f, 300.0, "Hello World");
         window_swap();
         window_poll();
     }
