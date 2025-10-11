@@ -1,0 +1,28 @@
+# Object files
+*.o
+
+# Executables
+*.out
+*.exe
+
+# Debugging files
+*.dSYM/
+*.pdb
+
+# Build directories
+build/
+bin/
+obj/
+
+# Editor/IDE specific files
+.vscode/
+.idea/
+*.swp
+*~
+*.bak
+
+# Log files
+*.log
+
+# Other temporary files
+tmp/
