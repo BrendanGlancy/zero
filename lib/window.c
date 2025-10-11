@@ -158,6 +158,7 @@ void window_draw_text(float x, float y, const char *text) {
     // NOTE: You'll also need to fix the projection matrix to flip Y-axis or adjust
     // glyph positioning, since FreeType uses top-down coordinates but OpenGL uses bottom-up.
 
+    glColor3f(1.0f, 1.0f, 1.0f);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     for (const char *p = text; *p; p++) {
