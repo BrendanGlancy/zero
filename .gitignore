@@ -4,6 +4,7 @@
 # Executables
 *.out
 *.exe
+term
 
 # Debugging files
 *.dSYM/
@@ -24,5 +25,3 @@ obj/
 # Log files
 *.log
 
-# Other temporary files
-tmp/
