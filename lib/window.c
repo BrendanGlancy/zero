@@ -168,7 +168,7 @@ void window_draw_text(float x, float y, const char *text) {
         FT_GlyphSlot g = face->glyph;
 
         float xpos = x + g->bitmap_left;
-        float ypos = y - g->bitmap_top + g->bitmap.rows;  // Adjust for top-down Y and bitmap flip
+        float ypos = y - g->bitmap_top;  // Adjust for top-down Y and bitmap flip
 
         glRasterPos2f(xpos, ypos);  // DEPRECATED: doesn't work in Core Profile
         glPixelZoom(1.0f, -1.0f);  // Flip vertically to fix upside-down text

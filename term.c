@@ -97,7 +97,7 @@ int main(void) {
         }
 
         window_clear(0.05f, 0.05f, 0.06f);
-        window_draw_text(20.0f, 300.0, "Hello World");
+        window_draw_text(20.0f, 300.0f, "Hello World");
         window_swap();
         window_poll();
     }
