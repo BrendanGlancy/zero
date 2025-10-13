@@ -2,22 +2,22 @@
 
 // Platform-specific OpenGL includes
 #ifdef __APPLE__
-    #define GL_SILENCE_DEPRECATION
-    #include <OpenGL/gl3.h>
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl3.h>
 #else
-    #include <GL/glew.h>
+#include <GL/glew.h>
 #endif
 
 #include <GLFW/glfw3.h>
 #include <ft2build.h>
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include FT_FREETYPE_H
 
 // Character info for texture atlas
 typedef struct {
-    float tx0, ty0, tx1, ty1;  // texture coords in atlas
+    float tx0, ty0, tx1, ty1;   // texture coords in atlas
     float width, height;        // size in pixels
     float bearing_x, bearing_y; // offset from baseline
     float advance;              // horizontal advance
@@ -56,7 +56,8 @@ static GLuint compile_shader(GLenum type, const char *source) {
 }
 
 // Create and link shader program
-static GLuint create_shader_program(const char *vertex_src, const char *fragment_src) {
+static GLuint create_shader_program(const char *vertex_src,
+                                    const char *fragment_src) {
     GLuint vertex_shader = compile_shader(GL_VERTEX_SHADER, vertex_src);
     GLuint fragment_shader = compile_shader(GL_FRAGMENT_SHADER, fragment_src);
 
@@ -113,7 +114,8 @@ static bool create_texture_atlas(void) {
                 int x = pen_x + col;
                 int y = pen_y + row;
                 if (x < atlas_width && y < atlas_height) {
-                    atlas_buffer[y * atlas_width + x] = g->bitmap.buffer[row * g->bitmap.width + col];
+                    atlas_buffer[y * atlas_width + x] =
+                        g->bitmap.buffer[row * g->bitmap.width + col];
                 }
             }
         }
@@ -130,13 +132,15 @@ static bool create_texture_atlas(void) {
         characters[c].advance = g->advance.x >> 6;
 
         pen_x += g->bitmap.width + 1; // +1 for padding
-        row_height = (g->bitmap.rows > row_height) ? g->bitmap.rows : row_height;
+        row_height =
+            (g->bitmap.rows > row_height) ? g->bitmap.rows : row_height;
     }
 
     // Create OpenGL texture
     glGenTextures(1, &text_texture);
     glBindTexture(GL_TEXTURE_2D, text_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlas_width, atlas_height, 0, GL_RED, GL_UNSIGNED_BYTE, atlas_buffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlas_width, atlas_height, 0, GL_RED,
+                 GL_UNSIGNED_BYTE, atlas_buffer);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -180,7 +184,8 @@ bool window_init(const char *title, int width, int height) {
     glewExperimental = GL_TRUE;
     GLenum glew_err = glewInit();
     if (glew_err != GLEW_OK) {
-        fprintf(stderr, "Failed to initialize GLEW: %s\n", glewGetErrorString(glew_err));
+        fprintf(stderr, "Failed to initialize GLEW: %s\n",
+                glewGetErrorString(glew_err));
         return false;
     }
 #endif
@@ -188,12 +193,6 @@ bool window_init(const char *title, int width, int height) {
     int fb_width, fb_height;
     glfwGetFramebufferSize(g_window, &fb_width, &fb_height);
     glViewport(0, 0, fb_width, fb_height);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0, fb_width, fb_height, 0, -1, 1); // left, right, bottom, top, near, far (top-down Y)
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -206,16 +205,14 @@ bool window_init(const char *title, int width, int height) {
     // Try platform-specific font paths
     const char *font_paths[] = {
 #ifdef __APPLE__
-        "/System/Library/Fonts/Monaco.ttf",
-        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Monaco.ttf", "/System/Library/Fonts/Menlo.ttc",
         "/Library/Fonts/Courier New.ttf",
 #else
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
         "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 #endif
-        NULL
-    };
+        NULL};
 
     bool font_loaded = false;
     for (int i = 0; font_paths[i] != NULL; i++) {
@@ -259,19 +256,32 @@ bool window_init(const char *title, int width, int height) {
         "    color = vec4(textColor, 1.0) * sampled;\n"
         "}\n";
 
-    text_shader_program = create_shader_program(vertex_shader_src, fragment_shader_src);
+    text_shader_program =
+        create_shader_program(vertex_shader_src, fragment_shader_src);
 
     // Set up projection matrix
     glUseProgram(text_shader_program);
-    GLint projection_loc = glGetUniformLocation(text_shader_program, "projection");
+    GLint projection_loc =
+        glGetUniformLocation(text_shader_program, "projection");
 
-    // Create orthographic projection matrix (same as glOrtho)
-    float projection[16] = {
-        2.0f / fb_width, 0.0f, 0.0f, 0.0f,
-        0.0f, -2.0f / fb_height, 0.0f, 0.0f,
-        0.0f, 0.0f, -1.0f, 0.0f,
-        -1.0f, 1.0f, 0.0f, 1.0f
-    };
+    // Create orthographic projection matrix for top-down coordinates
+    // Equivalent to glOrtho(0, fb_width, fb_height, 0, -1, 1)
+    float projection[16] = {2.0f / fb_width,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            -2.0f / fb_height,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            -1.0f,
+                            0.0f,
+                            -1.0f,
+                            1.0f,
+                            0.0f,
+                            1.0f};
     glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection);
     glUseProgram(0);
 
@@ -324,7 +334,8 @@ void window_draw_text(float x, float y, const char *text) {
     glUseProgram(text_shader_program);
 
     // Set text color to white
-    GLint text_color_loc = glGetUniformLocation(text_shader_program, "textColor");
+    GLint text_color_loc =
+        glGetUniformLocation(text_shader_program, "textColor");
     glUniform3f(text_color_loc, 1.0f, 1.0f, 1.0f);
 
     // Bind the texture atlas
@@ -343,20 +354,21 @@ void window_draw_text(float x, float y, const char *text) {
         Character ch = characters[c];
 
         float xpos = x + ch.bearing_x;
-        float ypos = y - (ch.height - ch.bearing_y);
+        float ypos = y - ch.bearing_y;
 
         float w = ch.width;
         float h = ch.height;
 
         // Update VBO for each character (6 vertices = 2 triangles)
+        // Swap ty0/ty1 to flip glyphs right-side up
         float vertices[6][4] = {
-            { xpos,     ypos + h,   ch.tx0, ch.ty0 },  // top-left
-            { xpos,     ypos,       ch.tx0, ch.ty1 },  // bottom-left
-            { xpos + w, ypos,       ch.tx1, ch.ty1 },  // bottom-right
+            {xpos, ypos + h, ch.tx0, ch.ty1}, // top-left
+            {xpos, ypos, ch.tx0, ch.ty0},     // bottom-left
+            {xpos + w, ypos, ch.tx1, ch.ty0}, // bottom-right
 
-            { xpos,     ypos + h,   ch.tx0, ch.ty0 },  // top-left
-            { xpos + w, ypos,       ch.tx1, ch.ty1 },  // bottom-right
-            { xpos + w, ypos + h,   ch.tx1, ch.ty0 }   // top-right
+            {xpos, ypos + h, ch.tx0, ch.ty1},    // top-left
+            {xpos + w, ypos, ch.tx1, ch.ty0},    // bottom-right
+            {xpos + w, ypos + h, ch.tx1, ch.ty1} // top-right
         };
 
         // Update content of VBO memory

@@ -1,9 +1,6 @@
 #include "lib/window.h"
 #include <GLFW/glfw3.h>
-#include <X11/Xlib.h>
-#include <bits/types/struct_timeval.h>
 #include <limits.h>
-#include <pty.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -12,6 +9,13 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
+
+#ifdef __APPLE__
+    #include <util.h>
+#else
+    #include <pty.h>
+    #include <bits/types/struct_timeval.h>
+#endif
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -99,7 +103,13 @@ int main(void) {
         window_clear(0.05f, 0.05f, 0.06f);
         window_draw_text(10.0f, 20.0f, "Hello World");
         window_swap();
+
+        glfwWaitEventsTimeout(0.01);
         window_poll();
+
+        if (window_should_close()) {
+            running = false;
+        }
     }
 
     window_shutdown();
