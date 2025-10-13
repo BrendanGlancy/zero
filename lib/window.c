@@ -159,7 +159,12 @@ bool window_init(const char *title, int width, int height) {
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#else
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
+#endif
 
     g_window = glfwCreateWindow(width, height, title, NULL, NULL);
     if (!g_window) {
@@ -170,13 +175,15 @@ bool window_init(const char *title, int width, int height) {
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(1); // enable vsync
 
-    // Initialize GLEW after creating OpenGL context
+#ifndef __APPLE__
+    // Initialize GLEW on Linux (macOS has native OpenGL support)
     glewExperimental = GL_TRUE;
     GLenum glew_err = glewInit();
     if (glew_err != GLEW_OK) {
         fprintf(stderr, "Failed to initialize GLEW: %s\n", glewGetErrorString(glew_err));
         return false;
     }
+#endif
 
     int fb_width, fb_height;
     glfwGetFramebufferSize(g_window, &fb_width, &fb_height);
@@ -196,8 +203,30 @@ bool window_init(const char *title, int width, int height) {
         return false;
     }
 
-    if (FT_New_Face(ft, "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 0, &face)) {
-        fprintf(stderr, "Could not open font\n");
+    // Try platform-specific font paths
+    const char *font_paths[] = {
+#ifdef __APPLE__
+        "/System/Library/Fonts/Monaco.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
+        "/Library/Fonts/Courier New.ttf",
+#else
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+#endif
+        NULL
+    };
+
+    bool font_loaded = false;
+    for (int i = 0; font_paths[i] != NULL; i++) {
+        if (FT_New_Face(ft, font_paths[i], 0, &face) == 0) {
+            font_loaded = true;
+            break;
+        }
+    }
+
+    if (!font_loaded) {
+        fprintf(stderr, "Could not open any font\n");
         return false;
     }
     FT_Set_Pixel_Sizes(face, 0, 18);
