@@ -393,13 +393,16 @@ void window_shutdown(void) {
     glfwTerminate();
 }
 
+void window_set_text_color(float r, float g, float b) {
+    glUseProgram(text_shader_program);
+    GLint text_color_loc = glGetUniformLocation(text_shader_program, "textColor");
+    glUniform3f(text_color_loc, r, g, b);
+    glUseProgram(0);
+}
+
 void window_draw_text(float x, float y, const char *text) {
     // Use the shader program
     glUseProgram(text_shader_program);
-
-    // Set text color to white
-    GLint text_color_loc = glGetUniformLocation(text_shader_program, "textColor");
-    glUniform3f(text_color_loc, 1.0f, 1.0f, 1.0f);
 
     // Bind the texture atlas
     glActiveTexture(GL_TEXTURE0);

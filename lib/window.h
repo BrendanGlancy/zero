@@ -12,6 +12,7 @@ void window_swap(void);
 void window_shutdown(void);
 void window_draw_text(float x, float y, const char *text);
 void window_get_size(int *window_width, int *window_height);
+void window_set_text_color(float r, float g, float b);
 void set_pty_fd(int fd);
 
 #endif
