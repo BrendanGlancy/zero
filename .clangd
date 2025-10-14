@@ -1,7 +1,9 @@
 CompileFlags:
   Add: [
+    "-I/opt/homebrew/opt/freetype/include/freetype2",
+    "-I/opt/homebrew/opt/libpng/include/libpng16",
+    "-I/opt/homebrew/opt/glfw/include",
     "-I/usr/include/freetype2",
     "-I/usr/include/libpng16",
     "-Ilib",
-    "-I/opt/homebrew/Cellar/glfw/3.4/include"
   ]

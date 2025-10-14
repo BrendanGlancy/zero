@@ -1,6 +1,7 @@
 #ifndef WINDOW_H
 #define WINDOW_H
 
+#include "GLFW/glfw3.h"
 #include <stdbool.h>
 
 bool window_init(const char *title, int width, int height);
@@ -10,5 +11,7 @@ void window_clear(float r, float g, float b);
 void window_swap(void);
 void window_shutdown(void);
 void window_draw_text(float x, float y, const char *text);
+void window_get_size(int *window_width, int *window_height);
+void set_pty_fd(int fd);
 
 #endif

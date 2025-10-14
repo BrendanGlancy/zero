@@ -1,4 +1,6 @@
 #include "window.h"
+#include <stdint.h>
+#include <unistd.h> // For write() system call
 
 // Platform-specific OpenGL includes
 #ifdef __APPLE__
@@ -24,6 +26,7 @@ typedef struct {
 } Character;
 
 static GLFWwindow *g_window = NULL;
+static int g_pty_fd = -1;
 static FT_Library ft;
 static FT_Face face;
 
@@ -35,9 +38,7 @@ static Character characters[128];
 static int atlas_width = 512;
 static int atlas_height = 512;
 
-static void error_callback(int error, const char *desc) {
-    fprintf(stderr, "GLFW Error (%d) %s\n", error, desc);
-}
+static void error_callback(int error, const char *desc) { fprintf(stderr, "GLFW Error (%d) %s\n", error, desc); }
 
 // Compile a shader and check for errors
 static GLuint compile_shader(GLenum type, const char *source) {
@@ -56,8 +57,7 @@ static GLuint compile_shader(GLenum type, const char *source) {
 }
 
 // Create and link shader program
-static GLuint create_shader_program(const char *vertex_src,
-                                    const char *fragment_src) {
+static GLuint create_shader_program(const char *vertex_src, const char *fragment_src) {
     GLuint vertex_shader = compile_shader(GL_VERTEX_SHADER, vertex_src);
     GLuint fragment_shader = compile_shader(GL_FRAGMENT_SHADER, fragment_src);
 
@@ -114,8 +114,7 @@ static bool create_texture_atlas(void) {
                 int x = pen_x + col;
                 int y = pen_y + row;
                 if (x < atlas_width && y < atlas_height) {
-                    atlas_buffer[y * atlas_width + x] =
-                        g->bitmap.buffer[row * g->bitmap.width + col];
+                    atlas_buffer[y * atlas_width + x] = g->bitmap.buffer[row * g->bitmap.width + col];
                 }
             }
         }
@@ -132,15 +131,13 @@ static bool create_texture_atlas(void) {
         characters[c].advance = g->advance.x >> 6;
 
         pen_x += g->bitmap.width + 1; // +1 for padding
-        row_height =
-            (g->bitmap.rows > row_height) ? g->bitmap.rows : row_height;
+        row_height = (g->bitmap.rows > row_height) ? g->bitmap.rows : row_height;
     }
 
     // Create OpenGL texture
     glGenTextures(1, &text_texture);
     glBindTexture(GL_TEXTURE_2D, text_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlas_width, atlas_height, 0, GL_RED,
-                 GL_UNSIGNED_BYTE, atlas_buffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlas_width, atlas_height, 0, GL_RED, GL_UNSIGNED_BYTE, atlas_buffer);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -151,6 +148,83 @@ static bool create_texture_atlas(void) {
     free(atlas_buffer);
 
     return true;
+}
+
+void set_pty_fd(int fd) { g_pty_fd = fd; }
+
+void key_callback(GLFWwindow *g_window, int key, int scancode, int action, int mods) {
+    if (action != GLFW_PRESS && action != GLFW_REPEAT)
+        return;
+
+    if (g_pty_fd < 0)
+        return;
+
+    switch (key) {
+
+    case GLFW_KEY_ENTER:
+        write(g_pty_fd, "\n", 1);
+        break;
+    case GLFW_KEY_BACKSPACE:
+        write(g_pty_fd, "\x7f", 1); // DEL character
+        break;
+    case GLFW_KEY_TAB:
+        write(g_pty_fd, "\t", 1);
+        break;
+    case GLFW_KEY_ESCAPE:
+        write(g_pty_fd, "\x1b", 1); // ESC character
+        break;
+    case GLFW_KEY_UP:
+        write(g_pty_fd, "\x1b[A", 3); // ANSI escape sequence for up arrow
+        break;
+    case GLFW_KEY_DOWN:
+        write(g_pty_fd, "\x1b[B", 3);
+        break;
+    case GLFW_KEY_RIGHT:
+        write(g_pty_fd, "\x1b[C", 3);
+        break;
+    case GLFW_KEY_LEFT:
+        write(g_pty_fd, "\x1b[D", 3);
+        break;
+    // Ctrl key combinations
+    case GLFW_KEY_C:
+        if (mods & GLFW_MOD_CONTROL)
+            write(g_pty_fd, "\x03", 1); // Ctrl+C
+        break;
+    case GLFW_KEY_D:
+        if (mods & GLFW_MOD_CONTROL)
+            write(g_pty_fd, "\x04", 1); // Ctrl+D
+        break;
+    }
+}
+
+void char_callback(GLFWwindow *g_window, uint32_t codepoint) {
+    if (g_pty_fd < 0)
+        return;
+
+    char buf[4];
+    int len = 0;
+
+    if (codepoint < 0x80) {
+        buf[0] = (char)codepoint;
+        len = 1;
+    } else if (codepoint < 0x800) {
+        buf[0] = 0xC0 | (codepoint >> 6);
+        buf[1] = 0x80 | (codepoint & 0x3F);
+        len = 2;
+    } else if (codepoint < 0x10000) {
+        buf[0] = 0xE0 | (codepoint >> 12);
+        buf[1] = 0x80 | ((codepoint >> 6) & 0x3F);
+        buf[2] = 0x80 | (codepoint & 0x3F);
+        len = 3;
+    } else {
+        buf[0] = 0xF0 | (codepoint >> 18);
+        buf[1] = 0x80 | ((codepoint >> 12) & 0x3F);
+        buf[2] = 0x80 | ((codepoint >> 6) & 0x3F);
+        buf[3] = 0x80 | (codepoint & 0x3F);
+        len = 4;
+    }
+
+    write(g_pty_fd, buf, len);
 }
 
 bool window_init(const char *title, int width, int height) {
@@ -169,6 +243,8 @@ bool window_init(const char *title, int width, int height) {
 #else
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 #endif
+    // no window decoration
+    // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
     g_window = glfwCreateWindow(width, height, title, NULL, NULL);
     if (!g_window) {
@@ -184,8 +260,7 @@ bool window_init(const char *title, int width, int height) {
     glewExperimental = GL_TRUE;
     GLenum glew_err = glewInit();
     if (glew_err != GLEW_OK) {
-        fprintf(stderr, "Failed to initialize GLEW: %s\n",
-                glewGetErrorString(glew_err));
+        fprintf(stderr, "Failed to initialize GLEW: %s\n", glewGetErrorString(glew_err));
         return false;
     }
 #endif
@@ -205,11 +280,10 @@ bool window_init(const char *title, int width, int height) {
     // Try platform-specific font paths
     const char *font_paths[] = {
 #ifdef __APPLE__
-        "/System/Library/Fonts/Monaco.ttf", "/System/Library/Fonts/Menlo.ttc",
-        "/Library/Fonts/Courier New.ttf",
+        "/Users/s167452/Library/Fonts/FiraCodeNerdFontMono-Regular.ttf", "/System/Library/Fonts/Monaco.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
 #else
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 #endif
         NULL};
@@ -226,7 +300,7 @@ bool window_init(const char *title, int width, int height) {
         fprintf(stderr, "Could not open any font\n");
         return false;
     }
-    FT_Set_Pixel_Sizes(face, 0, 18);
+    FT_Set_Pixel_Sizes(face, 0, 24);
 
     // Create texture atlas
     if (!create_texture_atlas()) {
@@ -235,53 +309,36 @@ bool window_init(const char *title, int width, int height) {
     }
 
     // Create shader program
-    const char *vertex_shader_src =
-        "#version 330 core\n"
-        "layout (location = 0) in vec4 vertex;\n"
-        "out vec2 TexCoords;\n"
-        "uniform mat4 projection;\n"
-        "void main() {\n"
-        "    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);\n"
-        "    TexCoords = vertex.zw;\n"
-        "}\n";
+    const char *vertex_shader_src = "#version 330 core\n"
+                                    "layout (location = 0) in vec4 vertex;\n"
+                                    "out vec2 TexCoords;\n"
+                                    "uniform mat4 projection;\n"
+                                    "void main() {\n"
+                                    "    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);\n"
+                                    "    TexCoords = vertex.zw;\n"
+                                    "}\n";
 
-    const char *fragment_shader_src =
-        "#version 330 core\n"
-        "in vec2 TexCoords;\n"
-        "out vec4 color;\n"
-        "uniform sampler2D text;\n"
-        "uniform vec3 textColor;\n"
-        "void main() {\n"
-        "    vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);\n"
-        "    color = vec4(textColor, 1.0) * sampled;\n"
-        "}\n";
+    const char *fragment_shader_src = "#version 330 core\n"
+                                      "in vec2 TexCoords;\n"
+                                      "out vec4 color;\n"
+                                      "uniform sampler2D text;\n"
+                                      "uniform vec3 textColor;\n"
+                                      "void main() {\n"
+                                      "    vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);\n"
+                                      "    color = vec4(textColor, 1.0) * sampled;\n"
+                                      "}\n";
 
-    text_shader_program =
-        create_shader_program(vertex_shader_src, fragment_shader_src);
+    text_shader_program = create_shader_program(vertex_shader_src, fragment_shader_src);
 
     // Set up projection matrix
     glUseProgram(text_shader_program);
-    GLint projection_loc =
-        glGetUniformLocation(text_shader_program, "projection");
+    GLint projection_loc = glGetUniformLocation(text_shader_program, "projection");
 
     // Create orthographic projection matrix for top-down coordinates
     // Equivalent to glOrtho(0, fb_width, fb_height, 0, -1, 1)
-    float projection[16] = {2.0f / fb_width,
-                            0.0f,
-                            0.0f,
-                            0.0f,
-                            0.0f,
-                            -2.0f / fb_height,
-                            0.0f,
-                            0.0f,
-                            0.0f,
-                            0.0f,
-                            -1.0f,
-                            0.0f,
-                            -1.0f,
-                            1.0f,
-                            0.0f,
-                            1.0f};
+    float projection[16] = {
+        2.0f / fb_width, 0.0f, 0.0f, 0.0f, 0.0f, -2.0f / fb_height, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f,
+        -1.0f,           1.0f, 0.0f, 1.0f};
     glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection);
     glUseProgram(0);
 
@@ -299,6 +356,9 @@ bool window_init(const char *title, int width, int height) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    glfwSetCharCallback(g_window, char_callback);
+    glfwSetKeyCallback(g_window, key_callback);
+
     return true;
 }
 
@@ -312,6 +372,10 @@ void window_swap(void) { glfwSwapBuffers(g_window); }
 void window_poll(void) { glfwPollEvents(); }
 
 bool window_should_close(void) { return glfwWindowShouldClose(g_window); }
+
+void window_get_size(int *window_width, int *window_height) {
+    glfwGetFramebufferSize(g_window, window_width, window_height);
+}
 
 void window_shutdown(void) {
     // Clean up OpenGL resources
@@ -334,8 +398,7 @@ void window_draw_text(float x, float y, const char *text) {
     glUseProgram(text_shader_program);
 
     // Set text color to white
-    GLint text_color_loc =
-        glGetUniformLocation(text_shader_program, "textColor");
+    GLint text_color_loc = glGetUniformLocation(text_shader_program, "textColor");
     glUniform3f(text_color_loc, 1.0f, 1.0f, 1.0f);
 
     // Bind the texture atlas
