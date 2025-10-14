@@ -214,6 +214,8 @@ void render_terminal(void) {
     float char_width = 15.0f, char_height = 25.0f;
     float padding_x = 10.0f;
     float padding_y = 20.0f;
+    float cursor_x_px = padding_x + cursor_x * char_width;
+    float cursor_y_px = padding_y + cursor_y * char_height;
 
     term_cols = (window_width - padding_x * 2) / char_width;
     term_rows = (window_height - padding_y * 2) / char_height;
@@ -235,6 +237,8 @@ void render_terminal(void) {
             window_draw_text(padding_x + x * char_width, padding_y + y * char_height, str);
         }
     }
+
+    window_draw_rect(cursor_x_px, cursor_y_px, char_width, char_height, 0.8f, 0.8f, 0.8f); // Light gray cursor
 }
 
 // creates a pty and fork + event loop

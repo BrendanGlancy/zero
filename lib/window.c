@@ -34,6 +34,9 @@ static FT_Face face;
 static GLuint text_vao, text_vbo;
 static GLuint text_shader_program;
 static GLuint text_texture;
+static GLuint rect_vao, rect_vbo;
+static GLuint rect_shader_program;
+
 static Character characters[128];
 static int atlas_width = 512;
 static int atlas_height = 512;
@@ -227,6 +230,55 @@ void char_callback(GLFWwindow *g_window, uint32_t codepoint) {
     write(g_pty_fd, buf, len);
 }
 
+static bool init_rect_rendering(int fb_width, int fb_height) {
+    const char *rect_vertex_src = "#version 330 core\n"
+                                  "layout (location = 0) in vec2 position;\n"
+                                  "uniform mat4 projection;\n"
+                                  "void main() {\n"
+                                  "    gl_Position = projection * vec4(position, 0.0, 1.0);\n"
+                                  "}\n";
+
+    const char *rect_fragment_src = "#version 330 core\n"
+                                    "out vec4 color;\n"
+                                    "uniform vec4 rectColor;\n"
+                                    "void main() {\n"
+                                    "    color = rectColor;\n"
+                                    "}\n";
+
+    rect_shader_program = create_shader_program(rect_vertex_src, rect_fragment_src);
+
+    // Set up projection matrix (same as text rendering)
+    glUseProgram(rect_shader_program);
+    GLint projection_loc = glGetUniformLocation(rect_shader_program, "projection");
+
+    float projection[16] = {
+        2.0f / fb_width, 0.0f, 0.0f, 0.0f, 0.0f, -2.0f / fb_height, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f,
+        -1.0f,           1.0f, 0.0f, 1.0f};
+    glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection);
+    glUseProgram(0);
+
+    // Create VAO and VBO
+    glGenVertexArrays(1, &rect_vao);
+    glGenBuffers(1, &rect_vbo);
+
+    glBindVertexArray(rect_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, rect_vbo);
+
+    // Allocate space for 6 vertices (2 triangles = 1 quad)
+    // Each vertex is 2 floats (x, y)
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
+
+    // Tell OpenGL how to interpret the data
+    // location 0, 2 components (x,y), float type, not normalized, stride 0, offset 0
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    return true;
+}
+
 bool window_init(const char *title, int width, int height) {
     glfwSetErrorCallback(error_callback);
 
@@ -356,10 +408,49 @@ bool window_init(const char *title, int width, int height) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    if (!init_rect_rendering(fb_width, fb_height)) {
+        fprintf(stderr, "Failed to initialize rectangle rendering\n");
+        return false;
+    }
     glfwSetCharCallback(g_window, char_callback);
     glfwSetKeyCallback(g_window, key_callback);
 
     return true;
+}
+
+void window_draw_rect(float x, float y, float w, float h, float r, float g, float b) {
+
+    // Use the rectangle shader
+    glUseProgram(rect_shader_program);
+
+    // Set the color uniform
+    GLint color_loc = glGetUniformLocation(rect_shader_program, "rectColor");
+    glUniform4f(color_loc, r, g, b, 1.0f); // RGB + alpha
+
+    // Define the 6 vertices for 2 triangles
+    float vertices[12] = {
+        // Triangle 1
+        x, y,         // Top-left
+        x, y + h,     // Bottom-left
+        x + w, y + h, // Bottom-right
+
+        // Triangle 2
+        x, y,         // Top-left
+        x + w, y + h, // Bottom-right
+        x + w, y      // Top-right
+    };
+
+    // Upload vertices to GPU
+    glBindVertexArray(rect_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, rect_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+
+    // Draw the 6 vertices as triangles
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Cleanup
+    glBindVertexArray(0);
+    glUseProgram(0);
 }
 
 void window_clear(float r, float g, float b) {
@@ -382,6 +473,9 @@ void window_shutdown(void) {
     glDeleteVertexArrays(1, &text_vao);
     glDeleteBuffers(1, &text_vbo);
     glDeleteProgram(text_shader_program);
+    glDeleteVertexArrays(1, &rect_vao);
+    glDeleteBuffers(1, &rect_vbo);
+    glDeleteProgram(rect_shader_program);
     glDeleteTextures(1, &text_texture);
 
     // Clean up FreeType
