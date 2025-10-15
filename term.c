@@ -51,8 +51,7 @@ static const int8_t utf8_length[256] = {
     [0xF8 ... 0xFF] = -1,  // Invalid
 };
 
-// takes a point to a UTF-8 byte sequence and decodes a single Unicode codepoint
-// from it.
+// takes a point to a UTF-8 byte sequence and decodes a single Unicode codepoint from it.
 int32_t utf8decode(const char* s, uint32_t* out_cp) {
     unsigned char c = (unsigned char)s[0];
     int32_t len = utf8_length[c];
@@ -75,8 +74,7 @@ int32_t utf8decode(const char* s, uint32_t* out_cp) {
 
         case 4:
             *out_cp = ((c & 0x07) << 18) | ((unsigned char)s[1] & 0x3F << 12) |
-                      ((unsigned char)s[2] & 0x3F << 6) |
-                      ((unsigned char)s[3] & 0x3F);
+                      ((unsigned char)s[2] & 0x3F << 6) | ((unsigned char)s[3] & 0x3F);
             return 4;
     }
 
@@ -120,8 +118,7 @@ int parse_ansii_escape(const char* buf, uint32_t buflen) {
     if (buf[1] != '[') return 2;
 
     uint32_t i = 2;
-    while (i < buflen && (buf[i] == ';' || (buf[i] >= '0' && buf[i] <= '9')))
-        i++;
+    while (i < buflen && (buf[i] == ';' || (buf[i] >= '0' && buf[i] <= '9'))) i++;
 
     if (i >= buflen) return 0;
 
@@ -168,8 +165,7 @@ int parse_ansii_escape(const char* buf, uint32_t buflen) {
     return i + 1;
 }
 
-// reads whatever byte is currently avaliable form the PTY decodes them prints
-// their Unicode codepoint to the console
+// reads byte currently avaliable form the PTY decodes them prints their codepoint to the console
 size_t readfrompty(void) {
     static char buf[SHRT_MAX];
     static uint32_t buflen = 0;
@@ -256,42 +252,60 @@ void render_terminal(void) {
     int window_width, window_height;
     window_get_size(&window_width, &window_height);
 
-    float char_width = 18.0f, char_height = 35.0f;
     float padding_x = 10.0f;
     float padding_y = 20.0f;
+
+    float avaliable_width = window_width - (padding_x * 2);
+    float avaliable_height = window_height - (padding_y * 2);
+
+    const int target_cols = 120;
+    const int target_rows = 40;
+
+    float char_width = avaliable_width / target_cols;
+    float char_height = avaliable_height / target_rows;
+
+    const float aspect_ratio = 1.9f;  // for monospace char width is usually ~2x char_width
+
+    if (char_height / char_width > aspect_ratio) {
+        char_height = char_height * aspect_ratio;  // too tall
+    } else {
+        char_width = char_width / aspect_ratio;  // too wide
+    }
+
+    term_cols = (int)(avaliable_width / char_width);
+    term_rows = (int)(avaliable_height / char_height);
+
+    if (term_cols > MAX_COLS) term_cols = MAX_COLS;
+    if (term_rows > MAX_ROWS) term_rows = MAX_ROWS;
+
     float cursor_x_px = padding_x + cursor_x * char_width;
     float cursor_y_px = padding_y + cursor_y * char_height;
-
-    term_cols = (window_width - padding_x * 2) / char_width;
-    term_rows = (window_height - padding_y * 2) / char_height;
 
     for (int y = 0; y < term_rows; y++) {
         for (int x = 0; x < term_cols; x++) {
             Cell cell = screen[y][x];
             if (!cell.codepoint) continue;
+
             char str[5] = {0};
-            if (cell.codepoint < 128)
+            if (cell.codepoint < 128) {
                 str[0] = (char)cell.codepoint;
-            else
+            } else {
                 utf8encode(cell.codepoint, str);
+            }
 
             float r, g, b;
             get_ansi_color(cell.fg_color, cell.bold, &r, &g, &b);
             window_set_text_color(r, g, b);
 
-            window_draw_text(padding_x + x * char_width,
-                             padding_y + y * char_height, str);
+            window_draw_text(padding_x + x * char_width, padding_y + y * char_height, str);
         }
     }
 
-    window_draw_rect(cursor_x_px, cursor_y_px, char_width, char_height, 0.8f,
-                     0.8f, 0.8f);  // Light gray cursor
+    window_draw_rect(cursor_x_px, cursor_y_px, char_width, char_height, 0.8f, 0.8f, 0.8f);
 }
 
-// creates a pty and fork + event loop
 int main(void) {
-    // forkpty() = openpty + fork()
-    // parent gets master file descriptor
+    // forkpty() = openpty + fork() parent gets master file descriptor
     if (forkpty(&masterfd, NULL, NULL, NULL) == 0) {
         // child replaces itself with zsh
         execlp("/bin/zsh", "zsh", NULL);
@@ -314,16 +328,18 @@ int main(void) {
 
     while (running) {
         int ret = poll(fds, 1, 2);  // 2ms 144hz
-        
+
         if (ret > 0 && (fds[0].revents & POLLIN)) {
-            readfrompty();
-            dirty = true;
+            do {
+                readfrompty();
+                dirty = true;
+            } while (poll(fds, 1, 0) > 0 && (fds[0].revents & POLLIN));
         }
 
         if (dirty) {
             window_clear(0.05f, 0.05f, 0.06f);
             render_terminal();
-            window_swap();
+            window_swap();  // blocks until VSync
             dirty = false;
         }
 

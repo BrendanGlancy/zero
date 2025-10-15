@@ -282,13 +282,8 @@ static bool init_rect_rendering(int fb_width, int fb_height) {
     glBindVertexArray(rect_vao);
     glBindBuffer(GL_ARRAY_BUFFER, rect_vbo);
 
-    // Allocate space for 6 vertices (2 triangles = 1 quad)
-    // Each vertex is 2 floats (x, y)
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
 
-    // Tell OpenGL how to interpret the data
-    // location 0, 2 components (x,y), float type, not normalized, stride 0,
-    // offset 0
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
 
@@ -458,7 +453,6 @@ bool window_init(const char* title, int width, int height) {
 
 void window_draw_rect(float x, float y, float w, float h, float r, float g,
                       float b) {
-    // Use the rectangle shader
     glUseProgram(rect_shader_program);
 
     // Set the color uniform
