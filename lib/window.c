@@ -1,6 +1,7 @@
 #include "window.h"
+
 #include <stdint.h>
-#include <unistd.h> // For write() system call
+#include <unistd.h>  // For write() system call
 
 // Platform-specific OpenGL includes
 #ifdef __APPLE__
@@ -19,18 +20,17 @@
 
 // Character info for texture atlas
 typedef struct {
-    float tx0, ty0, tx1, ty1;   // texture coords in atlas
-    float width, height;        // size in pixels
-    float bearing_x, bearing_y; // offset from baseline
-    float advance;              // horizontal advance
+    float tx0, ty0, tx1, ty1;    // texture coords in atlas
+    float width, height;         // size in pixels
+    float bearing_x, bearing_y;  // offset from baseline
+    float advance;               // horizontal advance
 } Character;
 
-static GLFWwindow *g_window = NULL;
+static GLFWwindow* g_window = NULL;
 static int g_pty_fd = -1;
 static FT_Library ft;
 static FT_Face face;
 
-// Modern OpenGL text rendering state
 static GLuint text_vao, text_vbo;
 static GLuint text_shader_program;
 static GLuint text_texture;
@@ -41,10 +41,12 @@ static Character characters[128];
 static int atlas_width = 512;
 static int atlas_height = 512;
 
-static void error_callback(int error, const char *desc) { fprintf(stderr, "GLFW Error (%d) %s\n", error, desc); }
+static void error_callback(int error, const char* desc) {
+    fprintf(stderr, "GLFW Error (%d) %s\n", error, desc);
+}
 
 // Compile a shader and check for errors
-static GLuint compile_shader(GLenum type, const char *source) {
+static GLuint compile_shader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, NULL);
     glCompileShader(shader);
@@ -60,7 +62,8 @@ static GLuint compile_shader(GLenum type, const char *source) {
 }
 
 // Create and link shader program
-static GLuint create_shader_program(const char *vertex_src, const char *fragment_src) {
+static GLuint create_shader_program(const char* vertex_src,
+                                    const char* fragment_src) {
     GLuint vertex_shader = compile_shader(GL_VERTEX_SHADER, vertex_src);
     GLuint fragment_shader = compile_shader(GL_FRAGMENT_SHADER, fragment_src);
 
@@ -86,7 +89,7 @@ static GLuint create_shader_program(const char *vertex_src, const char *fragment
 // Create texture atlas with all ASCII characters
 static bool create_texture_atlas(void) {
     // Create a buffer to hold the atlas
-    unsigned char *atlas_buffer = calloc(atlas_width * atlas_height, 1);
+    unsigned char* atlas_buffer = calloc(atlas_width * atlas_height, 1);
     if (!atlas_buffer) {
         fprintf(stderr, "Failed to allocate atlas buffer\n");
         return false;
@@ -117,7 +120,8 @@ static bool create_texture_atlas(void) {
                 int x = pen_x + col;
                 int y = pen_y + row;
                 if (x < atlas_width && y < atlas_height) {
-                    atlas_buffer[y * atlas_width + x] = g->bitmap.buffer[row * g->bitmap.width + col];
+                    atlas_buffer[y * atlas_width + x] =
+                        g->bitmap.buffer[row * g->bitmap.width + col];
                 }
             }
         }
@@ -133,14 +137,16 @@ static bool create_texture_atlas(void) {
         characters[c].bearing_y = g->bitmap_top;
         characters[c].advance = g->advance.x >> 6;
 
-        pen_x += g->bitmap.width + 1; // +1 for padding
-        row_height = (g->bitmap.rows > row_height) ? g->bitmap.rows : row_height;
+        pen_x += g->bitmap.width + 1;  // +1 for padding
+        row_height =
+            (g->bitmap.rows > row_height) ? g->bitmap.rows : row_height;
     }
 
     // Create OpenGL texture
     glGenTextures(1, &text_texture);
     glBindTexture(GL_TEXTURE_2D, text_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlas_width, atlas_height, 0, GL_RED, GL_UNSIGNED_BYTE, atlas_buffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlas_width, atlas_height, 0, GL_RED,
+                 GL_UNSIGNED_BYTE, atlas_buffer);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -155,54 +161,49 @@ static bool create_texture_atlas(void) {
 
 void set_pty_fd(int fd) { g_pty_fd = fd; }
 
-void key_callback(GLFWwindow *g_window, int key, int scancode, int action, int mods) {
-    if (action != GLFW_PRESS && action != GLFW_REPEAT)
-        return;
+void key_callback(GLFWwindow* g_window, int key, int scancode, int action,
+                  int mods) {
+    if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
 
-    if (g_pty_fd < 0)
-        return;
+    if (g_pty_fd < 0) return;
 
     switch (key) {
-
-    case GLFW_KEY_ENTER:
-        write(g_pty_fd, "\n", 1);
-        break;
-    case GLFW_KEY_BACKSPACE:
-        write(g_pty_fd, "\x7f", 1); // DEL character
-        break;
-    case GLFW_KEY_TAB:
-        write(g_pty_fd, "\t", 1);
-        break;
-    case GLFW_KEY_ESCAPE:
-        write(g_pty_fd, "\x1b", 1); // ESC character
-        break;
-    case GLFW_KEY_UP:
-        write(g_pty_fd, "\x1b[A", 3); // ANSI escape sequence for up arrow
-        break;
-    case GLFW_KEY_DOWN:
-        write(g_pty_fd, "\x1b[B", 3);
-        break;
-    case GLFW_KEY_RIGHT:
-        write(g_pty_fd, "\x1b[C", 3);
-        break;
-    case GLFW_KEY_LEFT:
-        write(g_pty_fd, "\x1b[D", 3);
-        break;
-    // Ctrl key combinations
-    case GLFW_KEY_C:
-        if (mods & GLFW_MOD_CONTROL)
-            write(g_pty_fd, "\x03", 1); // Ctrl+C
-        break;
-    case GLFW_KEY_D:
-        if (mods & GLFW_MOD_CONTROL)
-            write(g_pty_fd, "\x04", 1); // Ctrl+D
-        break;
+        case GLFW_KEY_ENTER:
+            write(g_pty_fd, "\n", 1);
+            break;
+        case GLFW_KEY_BACKSPACE:
+            write(g_pty_fd, "\x7f", 1);  // DEL character
+            break;
+        case GLFW_KEY_TAB:
+            write(g_pty_fd, "\t", 1);
+            break;
+        case GLFW_KEY_ESCAPE:
+            write(g_pty_fd, "\x1b", 1);  // ESC character
+            break;
+        case GLFW_KEY_UP:
+            write(g_pty_fd, "\x1b[A", 3);  // ANSI escape sequence for up arrow
+            break;
+        case GLFW_KEY_DOWN:
+            write(g_pty_fd, "\x1b[B", 3);
+            break;
+        case GLFW_KEY_RIGHT:
+            write(g_pty_fd, "\x1b[C", 3);
+            break;
+        case GLFW_KEY_LEFT:
+            write(g_pty_fd, "\x1b[D", 3);
+            break;
+        // Ctrl key combinations
+        case GLFW_KEY_C:
+            if (mods & GLFW_MOD_CONTROL) write(g_pty_fd, "\x03", 1);  // Ctrl+C
+            break;
+        case GLFW_KEY_D:
+            if (mods & GLFW_MOD_CONTROL) write(g_pty_fd, "\x04", 1);  // Ctrl+D
+            break;
     }
 }
 
-void char_callback(GLFWwindow *g_window, uint32_t codepoint) {
-    if (g_pty_fd < 0)
-        return;
+void char_callback(GLFWwindow* g_window, uint32_t codepoint) {
+    if (g_pty_fd < 0) return;
 
     char buf[4];
     int len = 0;
@@ -231,29 +232,46 @@ void char_callback(GLFWwindow *g_window, uint32_t codepoint) {
 }
 
 static bool init_rect_rendering(int fb_width, int fb_height) {
-    const char *rect_vertex_src = "#version 330 core\n"
-                                  "layout (location = 0) in vec2 position;\n"
-                                  "uniform mat4 projection;\n"
-                                  "void main() {\n"
-                                  "    gl_Position = projection * vec4(position, 0.0, 1.0);\n"
-                                  "}\n";
+    const char* rect_vertex_src =
+        "#version 330 core\n"
+        "layout (location = 0) in vec2 position;\n"
+        "uniform mat4 projection;\n"
+        "void main() {\n"
+        "    gl_Position = projection * vec4(position, 0.0, 1.0);\n"
+        "}\n";
 
-    const char *rect_fragment_src = "#version 330 core\n"
-                                    "out vec4 color;\n"
-                                    "uniform vec4 rectColor;\n"
-                                    "void main() {\n"
-                                    "    color = rectColor;\n"
-                                    "}\n";
+    const char* rect_fragment_src =
+        "#version 330 core\n"
+        "out vec4 color;\n"
+        "uniform vec4 rectColor;\n"
+        "void main() {\n"
+        "    color = rectColor;\n"
+        "}\n";
 
-    rect_shader_program = create_shader_program(rect_vertex_src, rect_fragment_src);
+    rect_shader_program =
+        create_shader_program(rect_vertex_src, rect_fragment_src);
 
     // Set up projection matrix (same as text rendering)
     glUseProgram(rect_shader_program);
-    GLint projection_loc = glGetUniformLocation(rect_shader_program, "projection");
+    GLint projection_loc =
+        glGetUniformLocation(rect_shader_program, "projection");
 
-    float projection[16] = {
-        2.0f / fb_width, 0.0f, 0.0f, 0.0f, 0.0f, -2.0f / fb_height, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f,
-        -1.0f,           1.0f, 0.0f, 1.0f};
+    float projection[16] = {2.0f / fb_width,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            -2.0f / fb_height,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            -1.0f,
+                            0.0f,
+                            -1.0f,
+                            1.0f,
+                            0.0f,
+                            1.0f};
     glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection);
     glUseProgram(0);
 
@@ -269,7 +287,8 @@ static bool init_rect_rendering(int fb_width, int fb_height) {
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
 
     // Tell OpenGL how to interpret the data
-    // location 0, 2 components (x,y), float type, not normalized, stride 0, offset 0
+    // location 0, 2 components (x,y), float type, not normalized, stride 0,
+    // offset 0
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
 
@@ -279,7 +298,7 @@ static bool init_rect_rendering(int fb_width, int fb_height) {
     return true;
 }
 
-bool window_init(const char *title, int width, int height) {
+bool window_init(const char* title, int width, int height) {
     glfwSetErrorCallback(error_callback);
 
     if (!glfwInit()) {
@@ -305,14 +324,15 @@ bool window_init(const char *title, int width, int height) {
     }
 
     glfwMakeContextCurrent(g_window);
-    glfwSwapInterval(1); // enable vsync
+    glfwSwapInterval(1);  // enable vsync
 
 #ifndef __APPLE__
     // Initialize GLEW on Linux (macOS has native OpenGL support)
     glewExperimental = GL_TRUE;
     GLenum glew_err = glewInit();
     if (glew_err != GLEW_OK) {
-        fprintf(stderr, "Failed to initialize GLEW: %s\n", glewGetErrorString(glew_err));
+        fprintf(stderr, "Failed to initialize GLEW: %s\n",
+                glewGetErrorString(glew_err));
         return false;
     }
 #endif
@@ -330,12 +350,13 @@ bool window_init(const char *title, int width, int height) {
     }
 
     // Try platform-specific font paths
-    const char *font_paths[] = {
+    const char* font_paths[] = {
 #ifdef __APPLE__
-        "/Users/s167452/Library/Fonts/FiraCodeNerdFontMono-Regular.ttf", "/System/Library/Fonts/Monaco.ttf",
-        "/System/Library/Fonts/Menlo.ttc",
+        "/Users/s167452/Library/Fonts/FiraCodeNerdFontMono-Regular.ttf",
+        "/System/Library/Fonts/Monaco.ttf", "/System/Library/Fonts/Menlo.ttc",
 #else
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 #endif
         NULL};
@@ -361,36 +382,53 @@ bool window_init(const char *title, int width, int height) {
     }
 
     // Create shader program
-    const char *vertex_shader_src = "#version 330 core\n"
-                                    "layout (location = 0) in vec4 vertex;\n"
-                                    "out vec2 TexCoords;\n"
-                                    "uniform mat4 projection;\n"
-                                    "void main() {\n"
-                                    "    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);\n"
-                                    "    TexCoords = vertex.zw;\n"
-                                    "}\n";
+    const char* vertex_shader_src =
+        "#version 330 core\n"
+        "layout (location = 0) in vec4 vertex;\n"
+        "out vec2 TexCoords;\n"
+        "uniform mat4 projection;\n"
+        "void main() {\n"
+        "    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);\n"
+        "    TexCoords = vertex.zw;\n"
+        "}\n";
 
-    const char *fragment_shader_src = "#version 330 core\n"
-                                      "in vec2 TexCoords;\n"
-                                      "out vec4 color;\n"
-                                      "uniform sampler2D text;\n"
-                                      "uniform vec3 textColor;\n"
-                                      "void main() {\n"
-                                      "    vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);\n"
-                                      "    color = vec4(textColor, 1.0) * sampled;\n"
-                                      "}\n";
+    const char* fragment_shader_src =
+        "#version 330 core\n"
+        "in vec2 TexCoords;\n"
+        "out vec4 color;\n"
+        "uniform sampler2D text;\n"
+        "uniform vec3 textColor;\n"
+        "void main() {\n"
+        "    vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);\n"
+        "    color = vec4(textColor, 1.0) * sampled;\n"
+        "}\n";
 
-    text_shader_program = create_shader_program(vertex_shader_src, fragment_shader_src);
+    text_shader_program =
+        create_shader_program(vertex_shader_src, fragment_shader_src);
 
     // Set up projection matrix
     glUseProgram(text_shader_program);
-    GLint projection_loc = glGetUniformLocation(text_shader_program, "projection");
+    GLint projection_loc =
+        glGetUniformLocation(text_shader_program, "projection");
 
     // Create orthographic projection matrix for top-down coordinates
     // Equivalent to glOrtho(0, fb_width, fb_height, 0, -1, 1)
-    float projection[16] = {
-        2.0f / fb_width, 0.0f, 0.0f, 0.0f, 0.0f, -2.0f / fb_height, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f,
-        -1.0f,           1.0f, 0.0f, 1.0f};
+    float projection[16] = {2.0f / fb_width,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            -2.0f / fb_height,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            -1.0f,
+                            0.0f,
+                            -1.0f,
+                            1.0f,
+                            0.0f,
+                            1.0f};
     glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection);
     glUseProgram(0);
 
@@ -418,26 +456,26 @@ bool window_init(const char *title, int width, int height) {
     return true;
 }
 
-void window_draw_rect(float x, float y, float w, float h, float r, float g, float b) {
-
+void window_draw_rect(float x, float y, float w, float h, float r, float g,
+                      float b) {
     // Use the rectangle shader
     glUseProgram(rect_shader_program);
 
     // Set the color uniform
     GLint color_loc = glGetUniformLocation(rect_shader_program, "rectColor");
-    glUniform4f(color_loc, r, g, b, 1.0f); // RGB + alpha
+    glUniform4f(color_loc, r, g, b, 1.0f);  // RGB + alpha
 
     // Define the 6 vertices for 2 triangles
     float vertices[12] = {
         // Triangle 1
-        x, y,         // Top-left
-        x, y + h,     // Bottom-left
-        x + w, y + h, // Bottom-right
+        x, y,          // Top-left
+        x, y + h,      // Bottom-left
+        x + w, y + h,  // Bottom-right
 
         // Triangle 2
-        x, y,         // Top-left
-        x + w, y + h, // Bottom-right
-        x + w, y      // Top-right
+        x, y,          // Top-left
+        x + w, y + h,  // Bottom-right
+        x + w, y       // Top-right
     };
 
     // Upload vertices to GPU
@@ -464,7 +502,7 @@ void window_poll(void) { glfwPollEvents(); }
 
 bool window_should_close(void) { return glfwWindowShouldClose(g_window); }
 
-void window_get_size(int *window_width, int *window_height) {
+void window_get_size(int* window_width, int* window_height) {
     glfwGetFramebufferSize(g_window, window_width, window_height);
 }
 
@@ -482,19 +520,19 @@ void window_shutdown(void) {
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
 
-    if (g_window)
-        glfwDestroyWindow(g_window);
+    if (g_window) glfwDestroyWindow(g_window);
     glfwTerminate();
 }
 
 void window_set_text_color(float r, float g, float b) {
     glUseProgram(text_shader_program);
-    GLint text_color_loc = glGetUniformLocation(text_shader_program, "textColor");
+    GLint text_color_loc =
+        glGetUniformLocation(text_shader_program, "textColor");
     glUniform3f(text_color_loc, r, g, b);
     glUseProgram(0);
 }
 
-void window_draw_text(float x, float y, const char *text) {
+void window_draw_text(float x, float y, const char* text) {
     // Use the shader program
     glUseProgram(text_shader_program);
 
@@ -506,10 +544,9 @@ void window_draw_text(float x, float y, const char *text) {
     glBindVertexArray(text_vao);
 
     // Iterate through all characters
-    for (const char *p = text; *p; p++) {
+    for (const char* p = text; *p; p++) {
         unsigned char c = *p;
-        if (c < 32 || c >= 128)
-            continue;
+        if (c < 32 || c >= 128) continue;
 
         Character ch = characters[c];
 
@@ -522,13 +559,13 @@ void window_draw_text(float x, float y, const char *text) {
         // Update VBO for each character (6 vertices = 2 triangles)
         // Swap ty0/ty1 to flip glyphs right-side up
         float vertices[6][4] = {
-            {xpos, ypos + h, ch.tx0, ch.ty1}, // top-left
-            {xpos, ypos, ch.tx0, ch.ty0},     // bottom-left
-            {xpos + w, ypos, ch.tx1, ch.ty0}, // bottom-right
+            {xpos, ypos + h, ch.tx0, ch.ty1},  // top-left
+            {xpos, ypos, ch.tx0, ch.ty0},      // bottom-left
+            {xpos + w, ypos, ch.tx1, ch.ty0},  // bottom-right
 
-            {xpos, ypos + h, ch.tx0, ch.ty1},    // top-left
-            {xpos + w, ypos, ch.tx1, ch.ty0},    // bottom-right
-            {xpos + w, ypos + h, ch.tx1, ch.ty1} // top-right
+            {xpos, ypos + h, ch.tx0, ch.ty1},     // top-left
+            {xpos + w, ypos, ch.tx1, ch.ty0},     // bottom-right
+            {xpos + w, ypos + h, ch.tx1, ch.ty1}  // top-right
         };
 
         // Update content of VBO memory

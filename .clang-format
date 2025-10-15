@@ -1,3 +1,2 @@
 IndentWidth: 4
-BasedOnStyle: LLVM  
-ColumnLimit: 120
+BasedOnStyle: Google

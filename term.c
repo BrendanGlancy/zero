@@ -4,7 +4,6 @@
 #include <bits/types/struct_timeval.h>
 #include <pty.h>
 #endif
-#include "lib/window.h"
 #include <GLFW/glfw3.h>
 #include <limits.h>
 #include <poll.h>
@@ -16,6 +15,8 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
+
+#include "lib/window.h"
 
 #define MAX_COLS 192
 #define MAX_ROWS 108
@@ -31,7 +32,8 @@ typedef struct {
     uint8_t bg_color;
     uint8_t bold;
 } Cell;
-static Cell screen[MAX_ROWS][MAX_COLS]; // 2D array of codepoints
+
+static Cell screen[MAX_ROWS][MAX_COLS];  // 2D array of codepoints
 static uint8_t current_fg_color = 7;
 static uint8_t current_bg_color = 0;
 static uint8_t current_bold = 0;
@@ -39,45 +41,93 @@ static uint8_t current_bold = 0;
 static int term_cols = 128, term_rows = 36;
 static int cursor_x = 0, cursor_y = 0;
 
+static const int8_t utf8_length[256] = {
+    [0x00 ... 0x7F] = 1,  // 0xxxxxxx
+    [0xC0 ... 0xDF] = 2,  // 110xxxxx
+    [0xE0 ... 0xEF] = 3,  // 1110xxxx
+    [0xF0 ... 0xF7] = 4,  // 11110xxx
+
+    [0x80 ... 0xBF] = -1,  // Continuation bytes
+    [0xF8 ... 0xFF] = -1,  // Invalid
+};
+
 // takes a point to a UTF-8 byte sequence and decodes a single Unicode codepoint
 // from it.
-int32_t utf8decode(const char *s, uint32_t *out_cp) {
-    unsigned char c = s[0];
-    if (c < 0x80) {
-        *out_cp = c;
-        return 1;
-    } else if ((c >> 5) == 0x6) {
-        *out_cp = ((c & 0x1f) << 6) | (s[1] & 0x3F);
-        return 2;
-    } else if ((c >> 4) == 0xE) {
-        *out_cp = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
-        return 3;
-    } else if ((c >> 3) == 0x1E) {
-        *out_cp = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3f) << 6) | (s[3] & 0x3F);
-        return 4;
+int32_t utf8decode(const char* s, uint32_t* out_cp) {
+    unsigned char c = (unsigned char)s[0];
+    int32_t len = utf8_length[c];
+
+    if (len <= 0) return -1;
+
+    switch (len) {
+        case 1:
+            *out_cp = c;
+            return 1;
+
+        case 2:
+            *out_cp = ((c & 0x1F) << 6) | ((unsigned char)s[1] & 0x3F);
+            return 2;
+
+        case 3:
+            *out_cp = ((c & 0x0F) << 12) | ((unsigned char)s[1] & 0x3F << 6) |
+                      ((unsigned char)s[2] & 0x3F);
+            return 3;
+
+        case 4:
+            *out_cp = ((c & 0x07) << 18) | ((unsigned char)s[1] & 0x3F << 12) |
+                      ((unsigned char)s[2] & 0x3F << 6) |
+                      ((unsigned char)s[3] & 0x3F);
+            return 4;
     }
+
     return -1;
 }
 
-int parse_ansii_escape(const char *buf, uint32_t buflen) {
-    if (buflen < 2 || buf[0] != '\x1b')
-        return 0;
+int utf8encode(uint32_t cp, char* out) {
+    if (cp < 0x80) {
+        out[0] = (char)cp;
+        return 1;
+    }
+
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+
+    if (cp < 0x10FFFF) {
+        out[0] = (char)(0xF0 | (cp >> 18));
+        out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (cp & 0x3F));
+        return 4;
+    }
+
+    return -1;
+}
+
+int parse_ansii_escape(const char* buf, uint32_t buflen) {
+    if (buflen < 2 || buf[0] != '\x1b') return 0;
 
     // checks for CSI sequence: ESC
-    if (buf[1] != '[')
-        return 2;
+    if (buf[1] != '[') return 2;
 
     uint32_t i = 2;
     while (i < buflen && (buf[i] == ';' || (buf[i] >= '0' && buf[i] <= '9')))
         i++;
 
-    if (i >= buflen)
-        return 0;
+    if (i >= buflen) return 0;
 
     char cmd = buf[i];
 
-    if (cmd != 'm')
-        return i + 1;
+    if (cmd != 'm') return i + 1;
 
     int params[16];
     int param_count = 0;
@@ -95,8 +145,7 @@ int parse_ansii_escape(const char *buf, uint32_t buflen) {
         }
     }
 
-    if (has_num || i == 2)
-        params[param_count++] = has_num ? num : 0;
+    if (has_num || i == 2) params[param_count++] = has_num ? num : 0;
 
     for (int p = 0; p < param_count; p++) {
         if (params[p] == 0) {
@@ -132,8 +181,7 @@ size_t readfrompty(void) {
     while (iter < buflen) {
         if (buf[iter] == '\x1b') {
             int consumed = parse_ansii_escape(&buf[iter], buflen - iter);
-            if (consumed == 0)
-                break;
+            if (consumed == 0) break;
             iter += consumed;
             continue;
         }
@@ -141,16 +189,14 @@ size_t readfrompty(void) {
         uint32_t codepoint;
         int32_t len = utf8decode(&buf[iter], &codepoint);
 
-        if (len == -1 || len > buflen)
-            break;
+        if (len == -1 || len > buflen) break;
 
         if (codepoint == 10) {
             cursor_x = 0;
             cursor_y++;
         } else if (codepoint == 8 || codepoint == 127) {
             // backspace
-            if (cursor_x > 0)
-                cursor_x--;
+            if (cursor_x > 0) cursor_x--;
         } else if (codepoint == 13) {
             // return
             cursor_x = 0;
@@ -161,7 +207,7 @@ size_t readfrompty(void) {
             screen[cursor_y][cursor_x].bold = current_bold;
             cursor_x++;
 
-            if (cursor_x >= term_cols) { // wrap to next line
+            if (cursor_x >= term_cols) {  // wrap to next line
                 cursor_x = 0;
                 cursor_y++;
             }
@@ -177,30 +223,29 @@ size_t readfrompty(void) {
     return nbytes;
 }
 
-void get_ansi_color(uint8_t color, uint8_t bold, float *r, float *g, float *b) {
+void get_ansi_color(uint8_t color, uint8_t bold, float* r, float* g, float* b) {
     // Basic 16 colors (0-7 normal, 8-15 bright)
     static const float colors[16][3] = {
-        {0.0f, 0.0f, 0.0f}, // 0: Black
-        {0.8f, 0.0f, 0.0f}, // 1: Red
-        {0.0f, 0.8f, 0.0f}, // 2: Green
-        {0.8f, 0.8f, 0.0f}, // 3: Yellow
-        {0.0f, 0.0f, 0.8f}, // 4: Blue
-        {0.8f, 0.0f, 0.8f}, // 5: Magenta
-        {0.0f, 0.8f, 0.8f}, // 6: Cyan
-        {0.8f, 0.8f, 0.8f}, // 7: White
-        {0.5f, 0.5f, 0.5f}, // 8: Bright Black (Gray)
-        {1.0f, 0.0f, 0.0f}, // 9: Bright Red
-        {0.0f, 1.0f, 0.0f}, // 10: Bright Green
-        {1.0f, 1.0f, 0.0f}, // 11: Bright Yellow
-        {0.0f, 0.0f, 1.0f}, // 12: Bright Blue
-        {1.0f, 0.0f, 1.0f}, // 13: Bright Magenta
-        {0.0f, 1.0f, 1.0f}, // 14: Bright Cyan
-        {1.0f, 1.0f, 1.0f}, // 15: Bright White
+        {0.0f, 0.0f, 0.0f},  // 0: Black
+        {0.8f, 0.0f, 0.0f},  // 1: Red
+        {0.0f, 0.8f, 0.0f},  // 2: Green
+        {0.8f, 0.8f, 0.0f},  // 3: Yellow
+        {0.0f, 0.0f, 0.8f},  // 4: Blue
+        {0.8f, 0.0f, 0.8f},  // 5: Magenta
+        {0.0f, 0.8f, 0.8f},  // 6: Cyan
+        {0.8f, 0.8f, 0.8f},  // 7: White
+        {0.5f, 0.5f, 0.5f},  // 8: Bright Black (Gray)
+        {1.0f, 0.0f, 0.0f},  // 9: Bright Red
+        {0.0f, 1.0f, 0.0f},  // 10: Bright Green
+        {1.0f, 1.0f, 0.0f},  // 11: Bright Yellow
+        {0.0f, 0.0f, 1.0f},  // 12: Bright Blue
+        {1.0f, 0.0f, 1.0f},  // 13: Bright Magenta
+        {0.0f, 1.0f, 1.0f},  // 14: Bright Cyan
+        {1.0f, 1.0f, 1.0f},  // 15: Bright White
     };
 
     int idx = (color % 16);
-    if (bold && idx < 8)
-        idx += 8; // Use bright version for bold
+    if (bold && idx < 8) idx += 8;  // Use bright version for bold
 
     *r = colors[idx][0];
     *g = colors[idx][1];
@@ -211,7 +256,7 @@ void render_terminal(void) {
     int window_width, window_height;
     window_get_size(&window_width, &window_height);
 
-    float char_width = 15.0f, char_height = 25.0f;
+    float char_width = 18.0f, char_height = 35.0f;
     float padding_x = 10.0f;
     float padding_y = 20.0f;
     float cursor_x_px = padding_x + cursor_x * char_width;
@@ -223,22 +268,24 @@ void render_terminal(void) {
     for (int y = 0; y < term_rows; y++) {
         for (int x = 0; x < term_cols; x++) {
             Cell cell = screen[y][x];
-            if (!cell.codepoint)
-                continue;
+            if (!cell.codepoint) continue;
             char str[5] = {0};
             if (cell.codepoint < 128)
                 str[0] = (char)cell.codepoint;
             else
-                snprintf(str, sizeof(str), "?");
+                utf8encode(cell.codepoint, str);
+
             float r, g, b;
             get_ansi_color(cell.fg_color, cell.bold, &r, &g, &b);
             window_set_text_color(r, g, b);
 
-            window_draw_text(padding_x + x * char_width, padding_y + y * char_height, str);
+            window_draw_text(padding_x + x * char_width,
+                             padding_y + y * char_height, str);
         }
     }
 
-    window_draw_rect(cursor_x_px, cursor_y_px, char_width, char_height, 0.8f, 0.8f, 0.8f); // Light gray cursor
+    window_draw_rect(cursor_x_px, cursor_y_px, char_width, char_height, 0.8f,
+                     0.8f, 0.8f);  // Light gray cursor
 }
 
 // creates a pty and fork + event loop
@@ -247,7 +294,7 @@ int main(void) {
     // parent gets master file descriptor
     if (forkpty(&masterfd, NULL, NULL, NULL) == 0) {
         // child replaces itself with zsh
-        execlp("/opt/homebrew/bin/zsh", "zsh", NULL);
+        execlp("/bin/zsh", "zsh", NULL);
         perror("execlp");
         exit(1);
     }
@@ -266,7 +313,8 @@ int main(void) {
     bool dirty = true;
 
     while (running) {
-        int ret = poll(fds, 1, 20); // block up to 20ms
+        int ret = poll(fds, 1, 2);  // 2ms 144hz
+        
         if (ret > 0 && (fds[0].revents & POLLIN)) {
             readfrompty();
             dirty = true;
@@ -280,8 +328,7 @@ int main(void) {
         }
 
         glfwPollEvents();
-        if (window_should_close())
-            running = false;
+        if (window_should_close()) running = false;
     }
 
     window_shutdown();
