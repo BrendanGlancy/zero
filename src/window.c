@@ -1,3 +1,18 @@
+/*
+ * Modern OpenGL 3.3 renderer - uses shaders, VAOs, and VBOs
+ *
+ * DEPRECATED OpenGL functions NOT used:
+ *   - Immediate mode: glBegin/glEnd, glVertex*, glColor*, etc.
+ *   - Fixed-function pipeline: glMatrixMode, glLoadIdentity, glOrtho, etc.
+ *   - Legacy lighting: glLight*, glMaterial*, etc.
+ *
+ * All rendering uses modern pipeline:
+ *   - Shaders (GLSL 330)
+ *   - Vertex Array Objects (VAO)
+ *   - Vertex Buffer Objects (VBO)
+ *   - Programmable pipeline
+ */
+
 #include "platform.h"
 #include "window.h"
 
@@ -247,6 +262,7 @@ static bool init_rect_rendering(int fb_width, int fb_height) {
   rect_shader_program = create_shader_program(rect_vertex_src, rect_fragment_src);
 
   // Set up projection matrix (same as text rendering)
+  // DEPRECATED: glOrtho() - we compute the matrix ourselves instead
   glUseProgram(rect_shader_program);
   GLint projection_loc = glGetUniformLocation(rect_shader_program, "projection");
 
@@ -307,7 +323,8 @@ bool window_init(const char* title, int width, int height) {
   glfwSwapInterval(1);  // enable vsync
 
 #ifndef __APPLE__
-  // Initialize GLEW on Linux (macOS has native OpenGL support)
+  // Initialize GLEW on Linux - loads OpenGL function pointers at runtime
+  // (macOS links OpenGL framework directly, doesn't need GLEW)
   glewExperimental = GL_TRUE;
   GLenum glew_err = glewInit();
   if (glew_err != GLEW_OK) {
@@ -328,13 +345,18 @@ bool window_init(const char* title, int width, int height) {
     return false;
   }
 
-  // Try platform-specific font paths
+  // Platform-specific monospace font paths
+  // TODO: Make font path configurable instead of hardcoding
   const char* font_paths[] = {
 #ifdef __APPLE__
-      "/Users/s167452/Library/Fonts/FiraCodeNerdFontMono-Regular.ttf", "/System/Library/Fonts/Monaco.ttf",
+      // macOS font locations
+      "/Users/s167452/Library/Fonts/FiraCodeNerdFontMono-Regular.ttf",
+      "/System/Library/Fonts/Monaco.ttf",
       "/System/Library/Fonts/Menlo.ttc",
 #else
-      "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+      // Linux font locations (Debian/Ubuntu and Arch)
+      "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",      // Debian/Ubuntu
+      "/usr/share/fonts/TTF/DejaVuSansMono.ttf",                   // Arch
       "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 #endif
       NULL};
@@ -387,8 +409,9 @@ bool window_init(const char* title, int width, int height) {
   glUseProgram(text_shader_program);
   GLint projection_loc = glGetUniformLocation(text_shader_program, "projection");
 
-  // Create orthographic projection matrix for top-down coordinates
-  // Equivalent to glOrtho(0, fb_width, fb_height, 0, -1, 1)
+  // Create orthographic projection matrix manually
+  // DEPRECATED: glOrtho() - we compute the matrix ourselves instead
+  // Equivalent to: glOrtho(0, fb_width, fb_height, 0, -1, 1)
   float projection[16] = {
       2.0f / fb_width, 0.0f, 0.0f, 0.0f, 0.0f, -2.0f / fb_height, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f,
       -1.0f,           1.0f, 0.0f, 1.0f};

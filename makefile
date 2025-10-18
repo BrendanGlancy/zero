@@ -11,7 +11,7 @@ else
     LDFLAGS := $(shell pkg-config --libs glfw3 freetype2) -lGL -lGLEW -lX11
 endif
 
-SRC     := term.c lib/window.c
+SRC     := src/term.c src/window.c
 OBJ     := $(SRC:.c=.o)
 BIN     := term
 

@@ -1,4 +1,5 @@
-#include "lib/platform.h"
+#include "platform.h"
+#include "window.h"
 
 #include <limits.h>
 #include <poll.h>
@@ -11,7 +12,6 @@
 #include <sys/select.h>
 #include <unistd.h>
 
-#include "lib/window.h"
 
 #define MAX_COLS 192
 #define MAX_ROWS 108
