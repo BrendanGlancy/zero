@@ -48,7 +48,9 @@ static Character characters[128];
 static int atlas_width = 512;
 static int atlas_height = 512;
 
-static void error_callback(int error, const char* desc) { fprintf(stderr, "GLFW Error (%d) %s\n", error, desc); }
+static void error_callback(int error, const char* desc) {
+  fprintf(stderr, "GLFW Error (%d): %s\n", error, desc);
+}
 
 // Compile a shader and check for errors
 static GLuint compile_shader(GLenum type, const char* source) {
@@ -298,25 +300,42 @@ bool window_init(const char* title, int width, int height) {
     return false;
   }
 
+  // Check what platform we're running on
+  int platform = glfwGetPlatform();
+  const char* platform_name = "Unknown";
+  if (platform == GLFW_PLATFORM_WAYLAND) platform_name = "Wayland";
+  else if (platform == GLFW_PLATFORM_X11) platform_name = "X11";
+  fprintf(stderr, "GLFW Platform: %s\n", platform_name);
+
   // OpenGL 3.3 - modern pipeline with shaders, VAOs, VBOs
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   platform_set_gl_hints();
-  // no window decoration
-  // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
+  // Wayland compatibility: ensure window is visible
+  glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+  glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE);
+
+  fprintf(stderr, "Creating window %dx%d...\n", width, height);
   g_window = glfwCreateWindow(width, height, title, NULL, NULL);
   if (!g_window) {
+    fprintf(stderr, "Failed to create window (check GLFW errors above)\n");
     glfwTerminate();
     return false;
   }
+  fprintf(stderr, "Window created successfully\n");
+
+  // Explicitly show window (important for Wayland)
+  glfwShowWindow(g_window);
 
   glfwMakeContextCurrent(g_window);
-  glfwSwapInterval(1);  // enable vsync
+  glfwSwapInterval(0);  // Disable vsync for Wayland (can cause issues)
 
   if (!platform_init_gl()) {
     return false;
   }
+
+  fprintf(stderr, "OpenGL initialized, ready to render\n");
 
   int fb_width, fb_height;
   glfwGetFramebufferSize(g_window, &fb_width, &fb_height);
@@ -336,7 +355,9 @@ bool window_init(const char* title, int width, int height) {
 
   bool font_loaded = false;
   for (int i = 0; font_paths[i] != NULL; i++) {
+    fprintf(stderr, "Trying font: %s\n", font_paths[i]);
     if (FT_New_Face(ft, font_paths[i], 0, &face) == 0) {
+      fprintf(stderr, "  -> Success! Using: %s\n", font_paths[i]);
       font_loaded = true;
       break;
     }

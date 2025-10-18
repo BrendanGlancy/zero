@@ -669,7 +669,7 @@ int main(void) {
   set_pty_fd(masterfd);
 
   if (!window_init("myterm", 1280, 720)) {
-    fprintf(stderr, "Failed to init window");
+    fprintf(stderr, "Failed to init window\n");
     return 1;
   }
 
@@ -684,6 +684,9 @@ int main(void) {
 
   bool running = true;
   bool dirty = true;
+  int frame_count = 0;
+
+  fprintf(stderr, "Entering main loop...\n");
 
   while (running) {
     int ret = poll(fds, 1, 2);  // 2ms 144hz
@@ -700,6 +703,11 @@ int main(void) {
       render_terminal();
       window_swap();  // blocks until VSync
       dirty = false;
+
+      // Debug: show we're rendering
+      if (frame_count++ < 5) {
+        fprintf(stderr, "Frame %d rendered\n", frame_count);
+      }
     }
 
     glfwPollEvents();
