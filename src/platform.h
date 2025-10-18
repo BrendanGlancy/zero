@@ -1,7 +1,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-#define _POSIX_C_SOURCE 200809L
+#include <stdbool.h>
 
 #ifdef __APPLE__
 #include <util.h>
@@ -13,5 +13,10 @@
 #endif
 
 #include <GLFW/glfw3.h>
+
+// Platform abstraction - hides all #ifdef __APPLE__ from main code
+void platform_set_gl_hints(void);
+bool platform_init_gl(void);
+const char** platform_get_font_paths(void);
 
 #endif // PLATFORM_H

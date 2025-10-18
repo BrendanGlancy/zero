@@ -1,5 +1,5 @@
 CC      := clang
-CFLAGS  := -Wall -Wextra -std=c99 -Ilib $(shell pkg-config --cflags glfw3 freetype2)
+CFLAGS  := -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L -Isrc $(shell pkg-config --cflags glfw3 freetype2)
 
 # Platform-specific flags
 UNAME_S := $(shell uname -s)
@@ -11,7 +11,7 @@ else
     LDFLAGS := $(shell pkg-config --libs glfw3 freetype2) -lGL -lGLEW -lX11
 endif
 
-SRC     := src/term.c src/window.c
+SRC     := src/term.c src/window.c src/platform.c
 OBJ     := $(SRC:.c=.o)
 BIN     := term
 

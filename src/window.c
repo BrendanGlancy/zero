@@ -301,15 +301,7 @@ bool window_init(const char* title, int width, int height) {
   // OpenGL 3.3 - modern pipeline with shaders, VAOs, VBOs
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-#ifdef __APPLE__
-  // macOS requires Core Profile (deprecated functions disabled)
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#else
-  // Linux: Compat Profile allows deprecated OpenGL (glBegin/glEnd, fixed-function pipeline)
-  // NOTE: We don't use any deprecated functions, but compat mode is more permissive
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
-#endif
+  platform_set_gl_hints();
   // no window decoration
   // glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
@@ -322,16 +314,9 @@ bool window_init(const char* title, int width, int height) {
   glfwMakeContextCurrent(g_window);
   glfwSwapInterval(1);  // enable vsync
 
-#ifndef __APPLE__
-  // Initialize GLEW on Linux - loads OpenGL function pointers at runtime
-  // (macOS links OpenGL framework directly, doesn't need GLEW)
-  glewExperimental = GL_TRUE;
-  GLenum glew_err = glewInit();
-  if (glew_err != GLEW_OK) {
-    fprintf(stderr, "Failed to initialize GLEW: %s\n", glewGetErrorString(glew_err));
+  if (!platform_init_gl()) {
     return false;
   }
-#endif
 
   int fb_width, fb_height;
   glfwGetFramebufferSize(g_window, &fb_width, &fb_height);
@@ -347,19 +332,7 @@ bool window_init(const char* title, int width, int height) {
 
   // Platform-specific monospace font paths
   // TODO: Make font path configurable instead of hardcoding
-  const char* font_paths[] = {
-#ifdef __APPLE__
-      // macOS font locations
-      "/Users/s167452/Library/Fonts/FiraCodeNerdFontMono-Regular.ttf",
-      "/System/Library/Fonts/Monaco.ttf",
-      "/System/Library/Fonts/Menlo.ttc",
-#else
-      // Linux font locations (Debian/Ubuntu and Arch)
-      "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",      // Debian/Ubuntu
-      "/usr/share/fonts/TTF/DejaVuSansMono.ttf",                   // Arch
-      "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-#endif
-      NULL};
+  const char** font_paths = platform_get_font_paths();
 
   bool font_loaded = false;
   for (int i = 0; font_paths[i] != NULL; i++) {

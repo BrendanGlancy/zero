@@ -1,6 +1,3 @@
-#include "platform.h"
-#include "window.h"
-
 #include <limits.h>
 #include <poll.h>
 #include <stdbool.h>
@@ -12,6 +9,8 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+#include "platform.h"
+#include "window.h"
 
 #define MAX_COLS 192
 #define MAX_ROWS 108
@@ -29,7 +28,14 @@ typedef struct {
 } Cell;
 
 typedef struct {
+  char cmd[2];
+  int params[16];
+  int nparams;
+  char prefix;
 } CSISequence;
+
+static CSISequence current_csi;
+static uint32_t recent_codepoint = 0;
 
 static Cell screen[MAX_ROWS][MAX_COLS];
 static uint8_t current_fg_color = 7;
@@ -47,6 +53,84 @@ static float cached_char_width = 18.0f;
 static float cached_char_height = 35.0f;
 static float cached_padding_x = 10.0f;
 static float cached_padding_y = 20.0f;
+
+static inline void clearcell(Cell* cell) {
+  cell->codepoint = 0;
+  cell->fg_color = 7;
+  cell->bg_color = 0;
+  cell->bold = 0;
+}
+
+static inline Cell* cellat(int x, int y) {
+  if (x < 0 || x >= term_cols || y < 0 || y >= term_rows) return NULL;
+  return &screen[y][x];
+}
+
+void moveto(int x, int y) {
+  cursor_x = x < 0 ? 0 : (x >= term_cols ? term_cols - 1 : x);
+  cursor_y = y < 0 ? 0 : (y >= term_rows ? term_rows - 1 : y);
+}
+
+void scrollup(int top, int n) {
+  if (n <= 0 || top >= term_rows) return;
+
+  int bottom = term_rows;
+  n = n > (bottom - top) ? (bottom - top) : n;
+
+  for (int y = top; y < bottom - n; y++) {
+    memcpy(screen[y], screen[y + n], sizeof(Cell) * term_cols);
+  }
+
+  for (int y = bottom - n; y < bottom; y++) {
+    for (int x = 0; x < term_cols; x++) {
+      clearcell(&screen[y][x]);
+    }
+  }
+}
+
+void scrolldown(int top, int n) {
+  if (n <= 0 || top >= term_rows) return;
+
+  int bottom = term_rows;
+  n = n > (bottom - top) ? (bottom - top) : n;
+
+  for (int y = bottom - 1; y >= top + n; y--) {
+    memcpy(screen[y], screen[y - n], sizeof(Cell) * term_cols);
+  }
+
+  for (int y = top; y < top + n; y++) {
+    for (int x = 0; x < term_cols; x++) {
+      clearcell(&screen[y][x]);
+    }
+  }
+}
+
+void insertblankchars(int n) {
+  if (n <= 0) return;
+
+  int end = cursor_x + n;
+  if (end > term_cols) end = term_cols;
+
+  for (int x = term_cols - 1; x >= end; x--) {
+    screen[cursor_y][x] = screen[cursor_y][x - 1];
+  }
+
+  for (int x = cursor_x; x < end; x++) {
+    clearcell(&screen[cursor_y][x]);
+  }
+}
+
+void deletecells(int n) {
+  if (n <= 0) return;
+
+  for (int x = cursor_x; x < term_cols - n; x++) {
+    screen[cursor_y][x] = screen[cursor_y][x + n];
+  }
+
+  for (int x = term_cols - n; x < term_cols; x++) {
+    clearcell(&screen[cursor_y][x]);
+  }
+}
 
 static const int8_t utf8_length[256] = {
     [0x00 ... 0x7F] = 1,  // 0xxxxxxx
@@ -117,73 +201,219 @@ int utf8encode(uint32_t cp, char* out) {
   return -1;
 }
 
+void parse_csi(void) {
+  uint32_t dp = current_csi.nparams > 0 ? current_csi.params[0] : 1;
+
+  switch (current_csi.cmd[0]) {
+    case 'm': {
+      for (int p = 0; p < current_csi.nparams; p++) {
+        int param = current_csi.params[p];
+        if (param == 0) {
+          current_fg_color = 7;
+          current_bg_color = 0;
+          current_bold = 0;
+        } else if (param == 1) {
+          current_bold = 1;
+        } else if (param >= 30 && param <= 37) {
+          current_fg_color = param - 30;
+        } else if (param >= 40 && param <= 47) {
+          current_bg_color = param - 40;
+        } else if (param >= 90 && param <= 97) {
+          current_fg_color = param - 90 + 8;
+        } else if (param >= 100 && param <= 107) {
+          current_bg_color = param - 100 + 8;
+        }
+      }
+
+      break;
+    }
+
+    case 'A':
+      moveto(cursor_x, cursor_y - dp);
+      break;
+
+    case 'B':
+    case 'e':
+      moveto(cursor_x, cursor_y + dp);
+      break;
+
+    case 'C':
+    case 'a':
+      moveto(cursor_x + dp, cursor_y);
+      break;
+
+    case 'D':
+      moveto(cursor_x - dp, cursor_y);
+      break;
+
+    case 'E':
+      moveto(0, cursor_y + dp);
+      break;
+
+    case 'F':
+      moveto(0, cursor_y - dp);
+      break;
+
+    case 'G':
+    case '`':
+      moveto(dp - 1, cursor_y);
+      break;
+
+    case 'H':
+    case 'f': {
+      uint32_t y = current_csi.nparams > 0 ? current_csi.params[0] : 1;
+      uint32_t x = current_csi.nparams > 1 ? current_csi.params[1] : 1;
+      moveto(x - 1, y - 1);
+    }
+
+    case 'J': {
+      int32_t op = current_csi.params[0];
+      if (op == 0) {
+        for (int x = cursor_x; x < term_cols; x++) {
+          clearcell(&screen[cursor_y][x]);
+        }
+        for (int y = cursor_y + 1; y < term_rows; y++) {
+          for (int x = 0; x < term_cols; x++) {
+            clearcell(&screen[y][x]);
+          }
+        }
+      } else if (op == 1) {
+        for (int y = 0; y < cursor_y; y++) {
+          for (int x = 0; x < term_cols; x++) {
+            clearcell(&screen[y][x]);
+          }
+        }
+        for (int x = 0; x <= cursor_x; x++) {
+          clearcell(&screen[cursor_y][x]);
+        }
+      } else if (op == 2) {
+        for (int y = 0; y < term_rows; y++) {
+          for (int x = 0; x <= term_cols; x++) {
+            clearcell(&screen[y][x]);
+          }
+        }
+      }
+      break;
+    }
+
+    case 'K': {
+      int32_t op = current_csi.params[0];
+      if (op == 0) {
+        // clear line right of cursor
+        for (int x = cursor_x; x < term_cols; x++) {
+          clearcell(&screen[cursor_y][x]);
+        }
+      } else if (op == 1) {
+        // clear line left
+        for (int x = 0; x <= cursor_x; x++) {
+          clearcell(&screen[cursor_y][x]);
+        }
+      } else if (op == 2) {
+        // Entire line
+        for (int x = 0; x < term_cols; x++) {
+          clearcell(&screen[cursor_y][x]);
+        }
+      }
+      break;
+    }
+
+    case 'L':  // Insert n Lines
+      scrolldown(cursor_y, dp);
+      break;
+
+    case 'M':
+      scrollup(cursor_y, dp);
+      break;
+
+    case 'P':
+      deletecells(dp);
+      break;
+
+    case 'S':
+      if (current_csi.prefix != '?') {
+        scrollup(0, dp);
+      }
+      break;
+
+    case 'X':
+      for (int x = cursor_x; x < cursor_x + (int)dp && x < term_cols; x++) {
+        clearcell(&screen[cursor_y][x]);
+      }
+      break;
+
+    case '@':
+      insertblankchars(dp);
+      break;
+
+    case 'b':
+      for (uint32_t i = 0; i < dp && i < SHRT_MAX; i++) {
+        if (recent_codepoint) {
+          screen[cursor_y][cursor_x].codepoint = recent_codepoint;
+          screen[cursor_y][cursor_x].fg_color = current_fg_color;
+          screen[cursor_y][cursor_x].bg_color = current_bg_color;
+          screen[cursor_y][cursor_x].bold = current_bold;
+          cursor_x++;
+          if (cursor_x >= term_cols) {
+            cursor_x = 0;
+            cursor_y++;
+          }
+        }
+      }
+      break;
+
+    case 'd':
+      moveto(cursor_x, dp - 1);
+      break;
+
+    case 'n':  // device status report
+      // would need to write back to PTY
+      break;
+
+    default:
+      break;
+  }
+}
+
 int parse_ansii_escape(const char* buf, uint32_t buflen) {
   if (buflen < 2 || buf[0] != '\x1b') return 0;
-
-  // Handle OSC sequences: ESC ] ... BEL or ESC ] ... ST (ESC \)
-  if (buf[1] == ']') {
-    for (uint32_t i = 2; i < buflen; i++) {
-      if (buf[i] == '\x07') {  // BEL
-        return i + 1;
-      }
-      if (i + 1 < buflen && buf[i] == '\x1b' && buf[i + 1] == '\\') {  // ST
-        return i + 2;
-      }
-    }
-    return 0;  // Incomplete sequence
-  }
 
   if (buf[1] != '[') return 2;  // Unknown escape, skip ESC + next char
 
   uint32_t i = 2;
 
+  memset(&current_csi, 0, sizeof(current_csi));
+
   // Skip optional '?' (used in private mode sequences like bracketed paste)
-  if (i < buflen && buf[i] == '?') i++;
+  if (i < buflen && buf[i] == '?') {
+    current_csi.prefix = '?';
+    i++;
+  }
 
-  while (i < buflen && (buf[i] == ';' || (buf[i] >= '0' && buf[i] <= '9'))) i++;
-
-  if (i >= buflen) return 0;
-
-  char cmd = buf[i];
-
-  // Only parse SGR (m) sequences for colors, ignore everything else
-  if (cmd != 'm') return i + 1;
-
-  int params[16];
-  int param_count = 0;
   int num = 0;
   bool has_num = false;
 
-  for (uint32_t j = 2; j < i; j++) {
-    if (buf[j] >= '0' && buf[j] <= '9') {
-      num = num * 10 + (buf[j] - '0');
+  while (i < buflen && (buf[i] == ';' || (buf[i] >= '0' && buf[i] <= '9'))) {
+    if (buf[i] >= '0' && buf[i] <= '9') {
+      num = num * 10 + (buf[i] - '0');
       has_num = true;
-    } else if (buf[j] == ';') {
-      params[param_count++] = has_num ? num : 0;
+    } else if (buf[i] == ';') {
+      current_csi.params[current_csi.nparams++] = has_num ? num : 0;
       num = 0;
-      has_num = false;
+      if (current_csi.nparams >= 16) break;
     }
+    i++;
   }
 
-  if (has_num || i == 2) params[param_count++] = has_num ? num : 0;
-
-  for (int p = 0; p < param_count; p++) {
-    if (params[p] == 0) {
-      current_fg_color = 7;
-      current_bg_color = 0;
-      current_bold = 0;
-    } else if (params[p] == 1) {
-      current_bold = 1;
-    } else if (params[p] >= 30 && params[p] <= 37) {
-      current_fg_color = params[p] - 30;
-    } else if (params[p] >= 40 && params[p] <= 47) {
-      current_bg_color = params[p] - 40;
-    } else if (params[p] >= 90 && params[p] <= 97) {
-      current_fg_color = params[p] - 90 + 8;
-    } else if (params[p] >= 100 && params[p] <= 107) {
-      current_bg_color = params[p] - 100 + 8;
-    }
+  if (has_num && current_csi.nparams < 16) {
+    current_csi.params[current_csi.nparams++] = num;
   }
+
+  if (i >= buflen) return 0;
+
+  current_csi.cmd[0] = buf[i];
+  current_csi.cmd[1] = '\0';
+
+  parse_csi();
 
   return i + 1;
 }
@@ -224,6 +454,9 @@ size_t readfrompty(void) {
       screen[cursor_y][cursor_x].fg_color = current_fg_color;
       screen[cursor_y][cursor_x].bg_color = current_bg_color;
       screen[cursor_y][cursor_x].bold = current_bold;
+
+      recent_codepoint = codepoint;
+
       cursor_x++;
 
       if (cursor_x >= term_cols) {  // wrap to next line
@@ -357,9 +590,9 @@ void render_terminal(void) {
   const float aspect_ratio = 1.9f;  // for monospace char width is usually ~2x char_width
 
   if (char_height / char_width > aspect_ratio) {
-    char_height = char_height * aspect_ratio;  // too tall
+    char_height = char_width * aspect_ratio;  // too tall
   } else {
-    char_width = char_width / aspect_ratio;  // too wide
+    char_width = char_height / aspect_ratio;  // too wide
   }
 
   term_cols = (int)(avaliable_width / char_width);
