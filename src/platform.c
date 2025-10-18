@@ -20,7 +20,6 @@ bool platform_init_gl(void) {
   glewExperimental = GL_TRUE;
   GLenum glew_err = glewInit();
   if (glew_err != GLEW_OK) {
-    fprintf(stderr, "Failed to initialize GLEW: %s\n", glewGetErrorString(glew_err));
     return false;
   }
 #endif

@@ -1,4 +1,6 @@
+#include <asm-generic/ioctls.h>
 #include <limits.h>
+#include <math.h>
 #include <poll.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -6,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <unistd.h>
 
@@ -463,6 +466,12 @@ size_t readfrompty(void) {
         cursor_x = 0;
         cursor_y++;
       }
+
+      if (cursor_y >= term_rows) {
+        memmove(screen[0], screen[1], sizeof(Cell) * MAX_COLS * (term_rows - 1));
+        memset(screen[term_rows - 1], 0, sizeof(Cell) * MAX_COLS);
+        cursor_y = term_rows - 1;
+      }
     }
 
     iter += len;
@@ -475,6 +484,7 @@ size_t readfrompty(void) {
   return nbytes;
 }
 
+// TODO: rid this project of this dogshit
 void copy_selection_to_clipboard(GLFWwindow* window) {
   int min_y = sel_start_y < sel_end_y ? sel_start_y : sel_end_y;
   int max_y = sel_start_y > sel_end_y ? sel_start_y : sel_end_y;
@@ -572,11 +582,12 @@ void get_ansi_color(uint8_t color, uint8_t bold, float* r, float* g, float* b) {
 }
 
 void render_terminal(void) {
+  static int last_cols = 0, last_rows = 0;
   int window_width, window_height;
   window_get_size(&window_width, &window_height);
 
-  float padding_x = 10.0f;
-  float padding_y = 20.0f;
+  float padding_x = 0.0f;
+  float padding_y = 30.0f;
 
   float avaliable_width = window_width - (padding_x * 2);
   float avaliable_height = window_height - (padding_y * 2);
@@ -601,14 +612,23 @@ void render_terminal(void) {
   if (term_cols > MAX_COLS) term_cols = MAX_COLS;
   if (term_rows > MAX_ROWS) term_rows = MAX_ROWS;
 
+  if (term_cols != last_cols || term_rows != last_rows) {
+    struct winsize ws = {
+        .ws_row = term_rows, .ws_col = term_cols, .ws_xpixel = window_width, .ws_ypixel = window_height};
+
+    ioctl(masterfd, TIOCSWINSZ, &ws);
+    last_cols = term_cols;
+    last_rows = term_rows;
+  }
+
   // Cache for mouse callbacks
   cached_char_width = char_width;
   cached_char_height = char_height;
   cached_padding_x = padding_x;
   cached_padding_y = padding_y;
 
-  float cursor_x_px = padding_x + cursor_x * char_width;
-  float cursor_y_px = padding_y + cursor_y * char_height;
+  float cursor_x_px = cursor_x * char_width;
+  float cursor_y_px = (padding_y + -13.0f) + cursor_y * char_height;
 
   // Calculate selection bounds
   int min_y = sel_start_y < sel_end_y ? sel_start_y : sel_end_y;
@@ -686,8 +706,6 @@ int main(void) {
   bool dirty = true;
   int frame_count = 0;
 
-  fprintf(stderr, "Entering main loop...\n");
-
   while (running) {
     int ret = poll(fds, 1, 2);  // 2ms 144hz
 
@@ -703,11 +721,6 @@ int main(void) {
       render_terminal();
       window_swap();  // blocks until VSync
       dirty = false;
-
-      // Debug: show we're rendering
-      if (frame_count++ < 5) {
-        fprintf(stderr, "Frame %d rendered\n", frame_count);
-      }
     }
 
     glfwPollEvents();

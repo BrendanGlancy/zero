@@ -13,15 +13,16 @@
  *   - Programmable pipeline
  */
 
-#include "platform.h"
 #include "window.h"
 
-#include <stdint.h>
-#include <unistd.h>
 #include <ft2build.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+#include "platform.h"
 #include FT_FREETYPE_H
 
 // Character info for texture atlas
@@ -48,9 +49,7 @@ static Character characters[128];
 static int atlas_width = 512;
 static int atlas_height = 512;
 
-static void error_callback(int error, const char* desc) {
-  fprintf(stderr, "GLFW Error (%d): %s\n", error, desc);
-}
+static void error_callback(int error, const char* desc) { fprintf(stderr, "GLFW Error (%d): %s\n", error, desc); }
 
 // Compile a shader and check for errors
 static GLuint compile_shader(GLenum type, const char* source) {
@@ -303,9 +302,10 @@ bool window_init(const char* title, int width, int height) {
   // Check what platform we're running on
   int platform = glfwGetPlatform();
   const char* platform_name = "Unknown";
-  if (platform == GLFW_PLATFORM_WAYLAND) platform_name = "Wayland";
-  else if (platform == GLFW_PLATFORM_X11) platform_name = "X11";
-  fprintf(stderr, "GLFW Platform: %s\n", platform_name);
+  if (platform == GLFW_PLATFORM_WAYLAND)
+    platform_name = "Wayland";
+  else if (platform == GLFW_PLATFORM_X11)
+    platform_name = "X11";
 
   // OpenGL 3.3 - modern pipeline with shaders, VAOs, VBOs
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -316,26 +316,22 @@ bool window_init(const char* title, int width, int height) {
   glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
   glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE);
 
-  fprintf(stderr, "Creating window %dx%d...\n", width, height);
   g_window = glfwCreateWindow(width, height, title, NULL, NULL);
   if (!g_window) {
     fprintf(stderr, "Failed to create window (check GLFW errors above)\n");
     glfwTerminate();
     return false;
   }
-  fprintf(stderr, "Window created successfully\n");
 
   // Explicitly show window (important for Wayland)
   glfwShowWindow(g_window);
 
   glfwMakeContextCurrent(g_window);
-  glfwSwapInterval(0);  // Disable vsync for Wayland (can cause issues)
+  glfwSwapInterval(1);  // 1 enable vsync 0 disable vsync
 
   if (!platform_init_gl()) {
     return false;
   }
-
-  fprintf(stderr, "OpenGL initialized, ready to render\n");
 
   int fb_width, fb_height;
   glfwGetFramebufferSize(g_window, &fb_width, &fb_height);
@@ -355,9 +351,7 @@ bool window_init(const char* title, int width, int height) {
 
   bool font_loaded = false;
   for (int i = 0; font_paths[i] != NULL; i++) {
-    fprintf(stderr, "Trying font: %s\n", font_paths[i]);
     if (FT_New_Face(ft, font_paths[i], 0, &face) == 0) {
-      fprintf(stderr, "  -> Success! Using: %s\n", font_paths[i]);
       font_loaded = true;
       break;
     }
@@ -367,11 +361,10 @@ bool window_init(const char* title, int width, int height) {
     fprintf(stderr, "Could not open any font\n");
     return false;
   }
-  FT_Set_Pixel_Sizes(face, 0, 24);
+  FT_Set_Pixel_Sizes(face, 0, 14);
 
   // Create texture atlas
   if (!create_texture_atlas()) {
-    fprintf(stderr, "Failed to create texture atlas\n");
     return false;
   }
 
@@ -427,7 +420,6 @@ bool window_init(const char* title, int width, int height) {
   glBindVertexArray(0);
 
   if (!init_rect_rendering(fb_width, fb_height)) {
-    fprintf(stderr, "Failed to initialize rectangle rendering\n");
     return false;
   }
   glfwSetCharCallback(g_window, char_callback);
