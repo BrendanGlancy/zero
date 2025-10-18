@@ -1,17 +1,8 @@
+#include "platform.h"
 #include "window.h"
 
 #include <stdint.h>
-#include <unistd.h>  // For write() system call
-
-// Platform-specific OpenGL includes
-#ifdef __APPLE__
-#define GL_SILENCE_DEPRECATION
-#include <OpenGL/gl3.h>
-#else
-#include <GL/glew.h>
-#endif
-
-#include <GLFW/glfw3.h>
+#include <unistd.h>
 #include <ft2build.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -291,12 +282,16 @@ bool window_init(const char* title, int width, int height) {
     return false;
   }
 
+  // OpenGL 3.3 - modern pipeline with shaders, VAOs, VBOs
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 #ifdef __APPLE__
+  // macOS requires Core Profile (deprecated functions disabled)
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #else
+  // Linux: Compat Profile allows deprecated OpenGL (glBegin/glEnd, fixed-function pipeline)
+  // NOTE: We don't use any deprecated functions, but compat mode is more permissive
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 #endif
   // no window decoration

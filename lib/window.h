@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-#include "GLFW/glfw3.h"
+typedef struct GLFWwindow GLFWwindow;
 
 bool window_init(const char* title, int width, int height);
 bool window_should_close(void);

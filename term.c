@@ -1,10 +1,5 @@
-#ifdef __APPLE__
-#include <util.h>
-#else
-#include <bits/types/struct_timeval.h>
-#include <pty.h>
-#endif
-#include <GLFW/glfw3.h>
+#include "lib/platform.h"
+
 #include <limits.h>
 #include <poll.h>
 #include <stdbool.h>
